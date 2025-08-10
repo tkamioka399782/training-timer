@@ -7,9 +7,9 @@
   };
 
   const saveBadge = $('#saveState');
-  const touchSave = () => { saveBadge.textContent='保存済み'; setTimeout(()=>saveBadge.textContent='未保存',1000); };
+  const touchSave = () => { if(!saveBadge) return; saveBadge.textContent='保存済み'; setTimeout(()=>saveBadge.textContent='未保存',1000); };
 
-  // ---------- model ----------
+  // ---------- model (ブラウザを閉じても保持) ----------
   const KEY = 'coreTimer.v3';
   let playlist = [];
 
@@ -23,11 +23,16 @@
     renderList();
     refreshPlayerMeta();
   }
+  window.addEventListener('beforeunload', () => {
+    // 念のため終了前にも保存（localStorageは即時反映だが安全策）
+    try { localStorage.setItem(KEY, JSON.stringify(playlist)); } catch {}
+  });
 
   // ---------- playlist UI ----------
   const listEl = $('#list');
 
   function renderList(){
+    if(!listEl) return;
     listEl.innerHTML = '';
     if (!playlist.length){
       listEl.innerHTML = '<div class="muted">（まだメニューがありません）</div>';
@@ -71,18 +76,18 @@
   }
 
   // add / sample / clear
-  $('#add').onclick = ()=>{
+  $('#add')?.addEventListener('click', ()=>{
     playlist.push({
       name: $('#name').value.trim() || '種目',
       repeats: +$('#repeats').value || 1,
       work: +$('#work').value || 30,
-      setInterval: +$('#setInterval').value || 15,   // デフォルト15秒
+      setInterval: +$('#setInterval').value || 15,   // 既定15秒
       interval: +$('#interval').value || 20
     });
     persist();
     $('#name').value = '';
-  };
-  $('#sample').onclick = ()=>{
+  });
+  $('#sample')?.addEventListener('click', ()=>{
     playlist = [
       { name:'プランク', repeats:3, work:30, setInterval:15, interval:20 },
       { name:'サイドプランク（右）', repeats:2, work:25, setInterval:15, interval:15 },
@@ -90,8 +95,51 @@
       { name:'バードドッグ', repeats:3, work:20, setInterval:15, interval:20 }
     ];
     persist();
-  };
-  $('#clear').onclick = ()=>{ if (confirm('すべて削除しますか？')) { playlist = []; persist(); } };
+  });
+  $('#clear')?.addEventListener('click', ()=>{
+    if (confirm('すべて削除しますか？')) { playlist = []; persist(); }
+  });
+
+  // ---------- audio (iOS対応：ユーザー操作後に初期化) ----------
+  let audioCtx = null;
+  let unlocked = false;
+  function initAudio() {
+    if (audioCtx) return;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new Ctx();
+    // iOS対策：一度短い無音を鳴らしてアンロック
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    g.gain.value = 0.0001;
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + 0.01);
+    unlocked = true;
+  }
+  function beepOnce(freq=880, len=0.15) {
+    if (!audioCtx) return;
+    const t0 = audioCtx.currentTime;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(freq, t0);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.25, t0 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + len);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(t0); o.stop(t0 + len + 0.02);
+  }
+  function chime(kind='phase') {
+    // kind: 'phase'（各フェーズ終了） / 'done'（全体完了）
+    if (!audioCtx) return;
+    if (kind === 'done') {
+      // 2トーン上昇
+      beepOnce(660, 0.12);
+      setTimeout(()=>beepOnce(990, 0.14), 140);
+    } else {
+      // 単発ビープ
+      beepOnce(880, 0.12);
+    }
+  }
 
   // ---------- player ----------
   const digits = $('#digits'), phaseEl = $('#phaseLabel'), nowName = $('#nowName'),
@@ -102,14 +150,18 @@
   let state = { running:false, paused:false, phase:'idle', i:0, rep:1, left:0, limit:0 };
 
   function refreshPlayerMeta(){
+    if (!nextName || !subInfo) return;
     nextName.textContent = playlist[0] ? `次：${playlist[0].name}` : '次：—';
     subInfo.textContent = `メニュー 0 / ${playlist.length} ・ セット 0 / 0`;
   }
 
   function start(){
     if (!playlist.length){ alert('メニューを追加してください'); return; }
+    // 音の初期化（ユーザー操作中）
+    initAudio();
+
     state = { running:true, paused:false, phase:'work', i:0, rep:1, left:playlist[0].work, limit:playlist[0].work };
-    btnStart.disabled = true; btnPause.disabled = false; btnStop.disabled = true; // Stopを2秒後に有効化（誤操作防止）
+    btnStart.disabled = true; btnPause.disabled = false; btnStop.disabled = true;
     setTimeout(()=>btnStop.disabled=false, 2000);
     btnResume.style.display = 'none'; btnPause.style.display = '';
     tickDraw();
@@ -136,26 +188,31 @@
     state = { running:false, paused:false, phase:'idle', i:0, rep:1, left:0, limit:0 };
     btnStart.disabled = false; btnPause.disabled = true; btnStop.disabled = true;
     btnResume.style.display = 'none'; btnPause.style.display = '';
-    digits.textContent = '00:00'; bar.style.width = '0%';
-    phaseEl.textContent = '待機中';
-    nowName.textContent = '—';
+    if (digits) digits.textContent = '00:00';
+    if (bar) bar.style.width = '0%';
+    if (phaseEl) phaseEl.textContent = '待機中';
+    if (nowName) nowName.textContent = '—';
     refreshPlayerMeta();
   }
 
   function finish(){
     clearInterval(timer); timer = null;
     state.running = false; state.phase = 'done';
-    phaseEl.textContent = '完了！おつかれさま';
-    nowName.textContent = '—'; nextName.textContent = '次：—';
+    if (phaseEl) phaseEl.textContent = '完了！おつかれさま';
+    if (nowName) nowName.textContent = '—'; if (nextName) nextName.textContent = '次：—';
     btnStart.disabled = false; btnPause.disabled = true; btnStop.disabled = true;
     btnResume.style.display = 'none'; btnPause.style.display = '';
+    chime('done');
   }
 
   function moveToNextPhase(){
     const cur = playlist[state.i];
+    // いまのフェーズが終了したので音
+    chime('phase');
+
     if (state.phase === 'work'){
       if (state.rep < cur.repeats){
-        // まだ同じ種目の途中 → セット間休憩 or 次セットへ
+        // セット間休憩 → 次セット
         if (cur.setInterval > 0){
           state.phase = 'setRest';
           state.left = cur.setInterval; state.limit = cur.setInterval;
@@ -164,7 +221,7 @@
           state.left = cur.work; state.limit = cur.work;
         }
       } else {
-        // 最終セット完了 → 次メニュー前インターバル or 直行
+        // 最終セット完 → メニュー間インターバル or 次メニュー
         if (state.i < playlist.length - 1 && cur.interval > 0){
           state.phase = 'interval';
           state.left = cur.interval; state.limit = cur.interval;
@@ -214,21 +271,20 @@
       nextName.textContent = next ? `次：${next.name} を開始` : '次：—';
       subInfo.textContent = `メニュー ${state.i+1} / ${playlist.length} ・ セット 完了`;
     } else if (state.phase === 'done'){
-      digits.textContent = '00:00'; bar.style.width = '0%';
+      if (digits) digits.textContent = '00:00';
+      if (bar) bar.style.width = '0%';
       return;
-    } else {
-      // idle
     }
-    digits.textContent = fmt(state.left);
+    if (digits) digits.textContent = fmt(state.left);
     const p = state.limit ? Math.max(0, Math.min(1, 1 - (state.left/state.limit))) : 0;
-    bar.style.width = `${p*100}%`;
+    if (bar) bar.style.width = `${p*100}%`;
   }
 
   // buttons
-  $('#start').onclick = start;
-  $('#pause').onclick = pause;
-  $('#resume').onclick = resume;
-  $('#stop').onclick = stop;
+  $('#start')?.addEventListener('click', start);
+  $('#pause')?.addEventListener('click', pause);
+  $('#resume')?.addEventListener('click', resume);
+  $('#stop')?.addEventListener('click', stop);
 
   // init
   load();
