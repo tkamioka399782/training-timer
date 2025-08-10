@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
+  <title>Core Training Timer</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Core Training Timer</h1>
+      <div class="pill" id="saveState">未保存</div>
+    </header>
+
+    <div class="grid">
+      <!-- Left: playlist / editor -->
+      <section class="card">
+        <h2>トレーニング一覧</h2>
+
+        <div class="row" style="margin-bottom:10px;">
+          <label>種目名
+            <input id="name" type="text" placeholder="例）プランク" />
+          </label>
+          <label>回数
+            <input id="repeats" type="number" min="1" value="3" />
+          </label>
+          <label>実施時間（秒）
+            <input id="work" type="number" min="5" step="5" value="30" />
+          </label>
+          <label>セット間休憩（秒）
+            <input id="setInterval" type="number" min="0" step="5" value="15" />
+          </label>
+          <label>次メニューまでのインターバル（秒）
+            <input id="interval" type="number" min="0" step="5" value="20" />
+          </label>
+          <button class="btn primary" id="add">追加</button>
+        </div>
+
+        <div id="list"></div>
+
+        <div class="row" style="margin-top:10px; justify-content:flex-end;">
+          <button class="btn ghost" id="sample">サンプル読込</button>
+          <button class="btn warn" id="clear">全削除</button>
+        </div>
+        <p class="muted" style="margin-top:8px;">
+          ※ 回数分だけ同じ種目を連続で実施します。各セットの間に「セット間休憩」を入れ、最後のセット後だけ「次メニューまでのインターバル」を入れます。
+        </p>
+      </section>
+
+      <!-- Right: player -->
+      <section class="card">
+        <h2>タイマー</h2>
+        <div class="player">
+          <div class="phase" id="phaseLabel">待機中</div>
+          <div class="now" id="nowName">—</div>
+          <div class="digits" id="digits">00:00</div>
+          <div class="progress"><div class="bar" id="bar"></div></div>
+          <div class="next" id="nextName">次：—</div>
+          <div class="sub" id="subInfo">メニュー 0 / 0 ・ セット 0 / 0</div>
+          <div class="controls">
+            <button class="btn primary" id="start">▶ Start</button>
+            <button class="btn ghost" id="pause" disabled>⏸ Pause</button>
+            <button class="btn ghost" id="resume" style="display:none;">▶ Resume</button>
+            <button class="btn ghost" id="stop" disabled>■ Stop</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <footer>データはブラウザに自動保存されます。ホーム画面に追加すればアプリっぽく使えます。</footer>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
